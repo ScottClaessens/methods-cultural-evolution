@@ -1,0 +1,226 @@
+---
+title: "Worksheet 2 - Spatial and Cultural Non-Independence"
+author: "Scott Claessens"
+format:
+  html:
+    embed-resources: true
+editor: visual
+execute:
+  warning: false
+  error: false
+project:
+  execute-dir: project
+---
+
+```{r echo=FALSE}
+options(width = 300)
+```
+
+## Installation and Setup
+
+Before starting this worksheet, you will need to ensure that you have **R**, **RStudio**, and the **brms** and **tidyverse** R packages installed on your machine.
+
+-   To install the latest version of **R**, see here: <https://cran.r-project.org/bin/windows/base/>
+
+-   To install **RStudio**, see here: <https://posit.co/download/rstudio-desktop/>
+
+-   To install the **brms** and **tidyverse** R packages, run `install.packages(c("brms", "tidyverse"))`
+
+Once you have installed these, open a fresh R session and load the following packages:
+
+```{r}
+library(brms)
+library(tidyverse)
+```
+
+## Scenario
+
+In this worksheet, we will analyse real data on spice levels and temperature across countries from [Bromham et al. (2021)](https://www.nature.com/articles/s41562-020-01039-8).
+
+As you move through the worksheet, I encourage you to type out the commands in R on your own machine. The best way to learn is by doing!
+
+You can download the `spice.csv` dataset from here: <https://github.com/ScottClaessens/methods-cultural-evolution/datasets>
+
+Load the dataset into R with the `read_csv()` command:
+
+```{r echo=FALSE}
+d <- read_csv(here::here("datasets/spice.csv"))
+```
+
+```{r eval=FALSE}
+d <- read_csv("spice.csv")
+```
+
+```{r}
+d
+```
+
+The dataset contains information on mean spice levels in recipes and temperature (standardised) for 37 countries, along with latitude and longitude values. We would like to know whether there is a causal effect of temperature on spice levels.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Plot the `spice_std` and `temp_std` variables in a scatterplot. Does there appear to be an association between these variables?
+:::
+
+## Analysis 1 - Without Controls
+
+We will first analyse these data with a naive regression that does not include any control variables. We can use the **brms** package to do this.
+
+::: callout-note
+## New to brms?
+
+If you're new to Bayesian regression, don't worry too much about the specifics. At this stage, you should just note that we are specifying a simple linear regression, just like we would using frequentist functions like `lm()`. The only difference is that we need to set some priors on the parameters beforehand. Then the package will run some MCMC chains under the hood using Stan to get us the estimates that we want.
+:::
+
+We can fit the model as follows:
+
+```{r}
+fit1 <- brm(
+  formula = spice_std ~ temp_std,
+  data = d,
+  prior = c(
+    prior(normal(0, 0.5), class = Intercept),
+    prior(normal(0, 0.5), class = b),
+    prior(exponential(3), class = sigma)
+  ),
+  cores = 4,
+  seed = 1234,
+  file = "fit1"
+)
+```
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Fit this model on your own machine and print the summary output. Look at the slope for the temperature predictor variable. Does the model find an association between temperature and spice levels?
+:::
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Use the `conditional_effects()` function in the brms package to plot the predictions from this model. Does the relationship appear to be strong?
+:::
+
+## Analysis 2 - Control for Spatial Non-Independence
+
+We would like to know whether this relationship holds when controlling for spatial non-independence in the data. To do this, we can use the information we have about latitude and longitude to incorporate spatial covariance into the model.
+
+There are many different ways of controlling for spatial non-independence. For this particular model, we will use a Gaussian Process control.
+
+::: callout-note
+## What is a Gaussian Process?
+
+In our model, the Gaussian Process adds a random intercept for every country and allows those random intercepts to covary according to the geographic distances between countries. It uses a covariance function to determine how geographic distances map on to covariance. In the **brms** package, the default covariance function is the exponentiated quadratic kernel, which states that the covariance between observations $i$ and $j$ is equal to $\sigma^2\text{exp}(-\frac{|x_i - x_j|^2}{2l^2})$ where $|x_i - x_j|$ is the distance between the observations. The $\sigma$ and $l$ parameters of this function are estimated from the data.
+:::
+
+If there is substantial geographic patterning in the data, the Gaussian Process control will "soak up" much of the variance, potentially changing the slope for the temperature variable.
+
+As before, we can fit this model using **brms**. We use the `gp()` function in the formula to specify the Gaussian Process over latitude and longitude values. We also need to tweak some model fitting specifications (number of iterations, adaptation) to ensure that the model converges properly.
+
+```{r}
+fit2 <- brm(
+  formula = spice_std ~ temp_std + gp(latitude, longitude),
+  data = d,
+  prior = c(
+    prior(normal(0, 0.5), class = Intercept),
+    prior(normal(0, 0.5), class = b),
+    prior(exponential(3), class = sdgp),
+    prior(exponential(3), class = sigma)
+  ),
+  cores = 4,
+  control = list(adapt_delta = 0.999),
+  iter = 5000,
+  warmup = 4000,
+  seed = 1234,
+  file = "fit2"
+)
+```
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Fit this model on your own machine and print the summary output. What has happened to the slope for the temperature variable? Does this change our interpretation of the results?
+:::
+
+When you fit this model, you may get a few warning messages about low effective sample sizes and low BFMI values, but the Rhat values (\< 1.05) suggest that the model has converged normally. Note that there are two new Gaussian Process parameters in the model output: `sdgp` and `lscale`. These are the parameters for the covariance kernel (see box above).
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Use the `conditional_effects()` function again to visualise the predictions from the model that includes the spatial control. What do you notice about the credible intervals around the regression line (the grey shaded ribbon)?
+:::
+
+## Analysis 3 - Control for Cultural Non-Independence
+
+Countries can be culturally non-independent as well as spatially non-independent. We can control for this by incorporating "cultural distances" between countries. Here, we will operationalise this using a linguistic distance matrix.
+
+You can download the linguistic distance matrix from <https://github.com/ScottClaessens/methods-cultural-evolution/datasets>. Load this distance matrix into R using the following code:
+
+```{r echo=FALSE}
+linguistic_dist_mat <- 
+  read_csv(here::here("datasets/linguistic_distance_matrix.csv")) %>%
+  column_to_rownames(var = "ISO") %>%
+  as.matrix()
+```
+
+```{r eval=FALSE}
+linguistic_dist_mat <- 
+  read_csv("linguistic_distance_matrix.csv") %>%
+  column_to_rownames(var = "ISO") %>%
+  as.matrix()
+```
+
+We can view this matrix for the first five countries:
+
+```{r}
+linguistic_dist_mat[1:5, 1:5]
+```
+
+The linguistic distance between two countries is a metric between 0 and 1, where higher values indicate greater distance between countries. To create the matrix, we average over all of the languages spoken within each country dyad and calculate the distance between those languages on a global phylogenetic tree (for more information, see [here](https://www.nature.com/articles/s41467-023-41486-1)). This creates the patterns that you see in the matrix slice above: countries like Austria (AT) and Germany (DE) are more linguistically similar than countries like Australia (AU) and China (CN).
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Looking at the full linguistic distance matrix, which two countries are most culturally similar? (Hint: use the `which()` function with the `arr.ind` argument set to `TRUE`)
+:::
+
+To use this distance matrix in our model, we need to convert it into a covariance matrix. If we assume that cultural traits evolve on the linguistic phylogeny in line with neutral Brownian motion evolution, then we can assume that covariance is negatively and linearly related to distance. In practice, this might not be a realistic assumption for how cultural traits evolve down linguistic phylogenies, but for the sake of this example this makes for a simple one-line conversion:
+
+```{r}
+# convert to covariance matrix
+linguistic_cov <- 1 - linguistic_dist_mat
+```
+
+We can include this covariance matrix into our model using a slightly different approach than before. Instead of using a Gaussian Process, we can declare a random intercept over countries and allow these random intercepts to covary according to our pre-computed linguistic covariance matrix. Notice the use of the `data2` argument below to declare the covariance matrix:
+
+```{r}
+fit3 <- brm(
+  formula = spice_std ~ temp_std + (1 | gr(iso, cov = linguistic_cov)),
+  data = d,
+  data2 = list(linguistic_cov = linguistic_cov),
+  prior = c(
+    prior(normal(0, 0.5), class = Intercept),
+    prior(normal(0, 0.5), class = b),
+    prior(exponential(3), class = sd),
+    prior(exponential(3), class = sigma)
+  ),
+  cores = 4,
+  control = list(
+    adapt_delta = 0.999,
+    max_treedepth = 15
+  ),
+  iter = 4000,
+  warmup = 2000,
+  seed = 1234,
+  file = "fit3"
+)
+```
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Fit this model on your own machine and print the summary output. What has happened to the slope for the temperature variable? Does this change our interpretation of the results?
+:::
+
+As with the previous model, you may get a few warning messages, but the model converges normally (Rhat \< 1.05).
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Use the `conditional_effects()` function again to visualise the predictions from the model that includes the cultural control. Have the predictions changed?
+:::
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Taking the results of the three models, what can we conclude about the potential causal effect of temperature on spice levels across countries?
+:::
+
+## Bonus Section
+
+If you have additional time, you could try fitting a model that controls for *both* spatial and cultural non-independence simultaneously. You can do this by combining the modelling approaches above into a single model formula (taking care to specify the correct priors, etc).
+
+Does this model fit well? How do these controls, when combined, change the slope on the temperature variable?

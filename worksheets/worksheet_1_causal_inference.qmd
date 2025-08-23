@@ -1,0 +1,289 @@
+---
+title: "Worksheet 1 - Causal Inference"
+author: "Scott Claessens"
+format:
+  html:
+    embed-resources: true
+editor: visual
+execute:
+  echo: false
+  warning: false
+  error: false
+---
+
+```{r}
+library(dagitty)
+library(ggdag)
+library(tidyverse)
+```
+
+## Section 1 - Reading DAGs
+
+In this section, your goal for each DAG is to list the variables (if any) that must be controlled for to get an unbiased estimate of the causal effect of the exposure $X$ on the outcome $Y$. This is known as the "minimal adjustment set".
+
+DAG #1:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,1"]
+    B [pos="0.5,-1"]
+    X -> Y
+    X <- A -> Y
+    X <- B -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #2:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.2,1"]
+    B [pos="0.8,1"]
+    X -> Y
+    X <- A <- B -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #3:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,1"]
+    B [pos="2,0"]
+    X -> Y <- B
+    X <- A -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #4:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,0"]
+    B [pos="0.5,1"]
+    X -> A -> Y
+    X <- B -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #5:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.2,1"]
+    B [pos="0.8,1"]
+    X -> Y
+    X -> A <- B -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #6:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,1"]
+    B [pos="0.5,-1"]
+    X -> Y
+    X -> A <- Y
+    X -> B <- Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #7:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0,1"]
+    B [pos="0.5,0.5"]
+    C [pos="1,1"]
+    X -> Y
+    X <- A -> B <- C -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #8:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,0"]
+    B [pos="0.75,1"]
+    X -> A -> Y
+    A <- B -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #9:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0,1"]
+    B [pos="0.5,1"]
+    C [pos="1,1"]
+    X -> Y
+    A -> X -> B
+    A -> B <- C -> Y -> B
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+DAG #10:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0.5,0"]
+    B [pos="0.25,1"]
+    C [pos="0.75,-1"]
+    X -> A -> Y
+    X <- B -> A
+    A <- C -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+## Section 2 - Drawing DAGs
+
+In this section, your goal for each description is to draw out the DAG and then identify the minimal adjustment set for the causal query of interest.
+
+### Study time and exam performance
+
+> Students' intelligence affects both how much time they spend studying and how well they perform on exams. Motivation to study influences study time but not directly exam performance. Test anxiety reduces exam performance and is influenced by motivation. You are interested in the direct causal effect of study time on exam performance.
+
+### Therapy and life satisfaction
+
+> Depression severity affects both the likelihood of seeking therapy and life satisfaction. The presence of social support causes a reduction in depression severity and an increase in life satisfaction. Age affects therapy uptake but not directly life satisfaction. You want to estimate the direct causal effect of therapy on life satisfaction.
+
+### Sleep hours and work performance
+
+> Age affects both how many hours people sleep each night and their general health. Better health causes people to perform better at work. Both the amount of sleep and work performance influence how satisfied people feel with life. You want to estimate the direct effect of sleep hours on work performance.
+
+### Physical activity and heart health
+
+> Fitness levels cause an increase in both physical activity and heart health. Age decreases fitness levels and heart health. Being health-conscious causes people to exercise more, but this does not directly affect heart health. Both heart health and health-consciousness influence whether someone gets regular cholesterol screening. You want to estimate the direct effect of physical activity on heart health.
+
+## Section 3 - Simulating DAGs
+
+DAGs provide a model of the data-generating process. From the assumptions laid out in a DAG, it is possible to simulate a dataset and then test whether our statistical approach estimates the true causal effect.
+
+Consider the following DAG:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    Z [pos="0.5,1"]
+    X -> Y
+    X <- Z -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+Using R, it is possible to simulate data from this DAG using the `rnorm()` function. For example, we could write the following simulation script, setting the true causal effect of $X$ on $Y$ to zero:
+
+```{r echo=TRUE}
+set.seed(1)
+n <- 1000
+Z <- rnorm(n)
+X <- rnorm(n, Z)
+Y <- rnorm(n, X*0 + Z)
+```
+
+Using these simulated data, we could show that a simple linear regression estimates a biased causal effect of $X$ on $Y$:
+
+```{r echo=TRUE}
+summary(lm(Y ~ X))
+```
+
+However, we get the true causal effect of $X$ on $Y$ once we control for $Z$:
+
+```{r echo=TRUE}
+summary(lm(Y ~ X + Z))
+```
+
+Now consider the following DAG:
+
+```{r fig.height=3, fig.width=4}
+dagitty(
+  'dag{
+    X [exposure, pos="0,0"]
+    Y [outcome, pos="1,0"]
+    A [pos="0,1"]
+    B [pos="0.5,1"]
+    C [pos="1,1"]
+    Z [pos="0.5,-1"]
+    X -> Y
+    X <- A -> B <- C -> Y
+    X <- Z -> Y
+   }'
+) |> 
+  ggdag() +
+  theme_dag()
+```
+
+For this DAG:
+
+1.  Identify the minimal adjustment set.
+2.  Simulate data from this DAG in R, setting the true causal effect of $X$ on $Y$ to zero.
+3.  Using your simulated data:
+    a.  show that a simple linear regression without controls estimates a biased causal effect of $X$ on $Y$.
+    b.  show that controlling for the correct variable(s) gets the right answer.

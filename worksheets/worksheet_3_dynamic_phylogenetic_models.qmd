@@ -1,0 +1,303 @@
+---
+title: "Worksheet 3 - Dynamic Phylogenetic Models"
+author: "Scott Claessens"
+format:
+  html:
+    embed-resources: true
+editor: visual
+execute:
+  warning: false
+  error: false
+project:
+  execute-dir: project
+---
+
+```{r echo=FALSE}
+options(width = 300)
+```
+
+## Installation and Setup
+
+Before starting this worksheet, you will need to ensure that you have **R**, **RStudio**, and the **ape**, **coevolve**, and **tidyverse** R packages installed on your machine.
+
+-   To install the latest version of **R**, see here: <https://cran.r-project.org/bin/windows/base/>
+
+-   To install **RStudio**, see here: <https://posit.co/download/rstudio-desktop/>
+
+-   To install the **ape** and **tidyverse** R packages, run `install.packages(c("ape", "tidyverse"))`
+
+-   To install the **coevolve** R package, see here: <https://github.com/ScottClaessens/coevolve>
+
+Once you have installed these, open a fresh R session and load the following packages:
+
+```{r}
+library(ape)
+library(coevolve)
+library(tidyverse)
+```
+
+## Scenario
+
+In this worksheet, we will analyse real data on landesque capital and sociopolitical hierarchy in Austronesian societies from [Sheehan et al. (2018)](https://www.pnas.org/doi/full/10.1073/pnas.1714558115).
+
+You can download the `austronesian.csv` dataset from here: <https://github.com/ScottClaessens/methods-cultural-evolution/datasets>
+
+Load the dataset into R with the `read_csv()` command:
+
+```{r echo=FALSE}
+d <- read_csv(here::here("datasets/austronesian.csv"))
+```
+
+```{r eval=FALSE}
+d <- read_csv("austronesian.csv")
+```
+
+```{r}
+d
+```
+
+The dataset contains information on the presence or absence of landesque capital (coded as 0/1), levels of political complexity (ordinal, 0-5), and levels of social stratification (ordinal, 0-5) for 155 Austronesian societies. The dataset also contains Glottocodes for linking to the linguistic phylogeny, along with associated latitude and longitude values.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Use the `table()` function to look at the cross-tabulation of counts for landesque capital and the two measures of sociopolitical hierarchy. Do there appear to be relationships between the variables in the data?
+:::
+
+We would like to use dynamic phylogenetic models to find out whether there is a causal effect of landesque capital on sociopolitical hierarchy. To do this, we need to load the language phylogeny. You can download `austronesian_MCC.tree` from the same GitHub link above.
+
+```{r echo=FALSE}
+tree <- read.tree(here::here("datasets/austronesian_MCC.tree"))
+```
+
+```{r eval=FALSE}
+tree <- read.tree("austronesian_MCC.tree")
+```
+
+This is a maximum clade credibility (MCC) tree of 154 Austronesian languages, calculated from a posterior set of global language trees. In a real analysis, you should ensure that you incorporate uncertainty in the tree structure by iterating the analysis over multiple sets of trees. However, this takes time. The MCC tree will do for this example.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Plot the MCC tree using `plot(tree)` . Which languages are most closely related? What societies do these languages correspond to in the dataset? If you're struggling to see the tip labels, try setting the `cex` argument to a lower number in the plot function (e.g., 0.5).
+:::
+
+## Analysis 1 - Landesque capital and political complexity
+
+Now we have our dataset and our phylogeny, we can fit our first dynamic phylogenetic model. This model will assess the coevolution of landesque capital and political complexity.
+
+The first thing we need to do is ensure that the dataset and the linguistic phylogeny match. Currently, there is one society that is not represented on the tree ("Siraya"), so we will drop this row from the dataset:
+
+```{r}
+d <- filter(d, glottocode %in% tree$tip.label)
+```
+
+We also need to ensure that the landesque capital variable is a 0/1 integer and the political complexity variable is an ordered factor in the data. We can do this with the following code:
+
+```{r}
+d$landesque_capital <- as.integer(d$landesque_capital)
+d$political_complexity <- ordered(d$political_complexity)
+```
+
+Then we can use the `coev_fit()` function to fit the model:
+
+```{r eval=FALSE}
+fit1 <- coev_fit(
+  data = d,
+  variables = list(
+    landesque_capital = "bernoulli_logit",
+    political_complexity = "ordered_logistic"
+  ),
+  id = "glottocode",
+  tree = tree,
+  prior = list(
+    A_offdiag = "normal(0, 2)",
+    Q_sigma = "normal(0, 0.5)"
+  ),
+  estimate_correlated_drift = FALSE,
+  parallel_chains = 4,
+  seed = 123
+)
+
+save_coevfit(fit1, "coevfit1.rds")
+```
+
+```{r echo=FALSE}
+fit1 <- readRDS("coevfit1.rds")
+```
+
+In the code above, we declare our dataset and phylogenetic tree, tell the function which variables we would like to coevolve on the tree (along with their associated response distributions), and identify the column in the dataset that links to the tip labels. We also set some manual priors on the cross selection effects (`A_offdiag`) and drift parameters (`Q_sigma`) and turn off the estimation of correlated drift between the variables. See `help(coev_fit)` for more information about this function.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Fit the dynamic phylogenetic model using the code above and print the model summary to the console using `summary(fit1)`. Bear in mind that this could take 10-15 minutes to run, depending on your machine.
+:::
+
+In the summary output, you will find information on the following parameters:
+
+-   **Autoregressive selection effects:** these parameters are constrained to be negative and determine how much each variable is "pulled" back towards itself during the evolutionary process.
+
+-   **Cross selection effects:** these parameters reflect the directional effect of one variable on another over evolutionary time.
+
+-   **Drift parameters:** these standard deviation parameters determine the amount of Brownian motion drift for each variable.
+
+-   **Continuous time intercept parameters:** these intercept parameters, along with the autoregressive and cross selection effects, determine the equilibrium values for traits – without these intercepts, all traits would revert back to 0.
+
+-   **Ordinal cutpoint parameters:** these parameters are the cutpoints for the ordinal variables (in this case, just the political complexity variable).
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Look at the cross selection effects from the model. What do they suggest about the direction of coevolution between the two variables?
+:::
+
+While this summary output is useful as a first glance, it is difficult to interpret these parameters directly to infer directions of coevolution. Another approach is to “intervene” in the system. We can hold variables of interest at their average values and then increase one variable by a standardised amount to see how this affects the optimal trait value for another variable.
+
+The `coev_plot_delta_theta()` function allows us to visualise $\Delta\theta_z$ for all variable pairs in the model. $\Delta\theta_z$ is defined as the change in the optimal trait value $\theta$ of one variable which results from a median absolute deviation increase in another variable.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Plot $\Delta\theta_z$ values from the model by running `coev_plot_delta_theta(fit1)` . What can we say about the direction of coevolution between the two variables?
+:::
+
+We can explore the model further. For example, we can see where the different societies fall in latent trait space:
+
+```{r}
+coev_plot_trait_values(fit1, xlim = c(-4, 2), ylim = c(-4, 2))
+```
+
+With this understanding of the latent trait space, we can then view a selection gradient heatmap. This heatmap lets us explore how the strength of selection on different variables changes in different areas of the latent trait space:
+
+```{r}
+coev_plot_selection_gradient(
+  object = fit1,
+  var1 = "landesque_capital",
+  var2 = "political_complexity",
+  contour = TRUE,
+  limits = c(-7, 7)
+)
+```
+
+In the plot, the selection gradient $\Delta\alpha$ for each variable is scaled by the strength of drift $\sigma$ such that values between -1 and 1 (within the white contour lines) indicate areas where drift is stronger than selection. Outside of these areas, selection is stronger than drift.
+
+The plot on the right shows that when societies are at high levels of landesque capital but low levels of political complexity (bottom right corner), there is positive selection on political complexity.
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** What does the selection gradient heatmap tell us about the strength of selection vs. drift for landesque capital?
+:::
+
+Finally, we can plot the evolutionary dynamics from the last common ancestor of all societies to the present day. This allows us to plot the implications of interventions. For example, if we hold landesque capital constant at a high level, what does this do to the predicted trajectory of political complexity over time?
+
+```{r}
+coev_plot_pred_series(
+  object = fit1,
+  intervention_values = list(
+    political_complexity = NA, # free variable
+    landesque_capital = 4
+  )
+)
+```
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px"}
+**Task:** Try changing the constant intervention value for landesque capital to a low value (e.g., -4). What does this do to the predicted trajectory of political complexity? Does intervening on political complexity have as strong of an effect on the predicted trajectory for landesque capital?
+:::
+
+## Analysis 2 - Landesque capital and social stratification
+
+We can now turn to the second measure of sociopolitical hierarchy: social stratification.
+
+This is also an ordinal variable, so we need to declare it as such:
+
+```{r}
+d$social_stratification <- ordered(d$social_stratification)
+```
+
+Then we can use `coev_fit()` to fit the model as before:
+
+```{r eval=FALSE}
+fit2 <- coev_fit(
+  data = d,
+  variables = list(
+    landesque_capital = "bernoulli_logit",
+    social_stratification = "ordered_logistic"
+  ),
+  id = "glottocode",
+  tree = tree,
+  prior = list(
+    A_offdiag = "normal(0, 2)",
+    Q_sigma = "normal(0, 0.5)"
+  ),
+  estimate_correlated_drift = FALSE,
+  parallel_chains = 4,
+  seed = 123
+)
+
+save_coevfit(fit2, "coevfit2.rds")
+```
+
+```{r echo=FALSE}
+fit2 <- readRDS("coevfit2.rds")
+```
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** As with the first analysis, fit this model and print `summary(fit2)`. What direction of coevolution do the cross selection effects support? Is this corroborated by the $\Delta\theta_z$ values calculated by `coev_plot_delta_theta(fit2)`?
+:::
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Plot the selection gradient heatmap for this second model by adapting the code above. What can we conclude about the strength of selection relative to drift for these two variables?
+:::
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Plot the implications of different interventions for the evolutionary dynamics under this second model. What effect does setting landesque capital to high/low have on the evolutionary trajectory of social stratification?
+:::
+
+::: {style="background-color: #FFE6EA; border-radius: 10px; padding: 10px 20px 1px; margin-bottom: 20px"}
+**Task:** Taken together, what implications do these results have for the materialist hypothesis?
+:::
+
+## Bonus Section
+
+If you have time, you could try additionally controlling for spatial autocorrelation in the models above. This is important to ensure that the phylogenetic effects hold when we account for more recent horizontal diffusion of cultural traits between neighbouring societies.
+
+The **coevolve** package allows us to include a distance matrix in the `coev_fit()` function. To create this distance matrix, we can use the latitude and longitude values in our dataset, employing the `distm()` function from the **geosphere** package:
+
+```{r}
+# install.packages("geosphere")
+library(geosphere)
+
+# fix longitude values above 180
+d$longitude <- ifelse(d$longitude > 180, d$longitude - 360, d$longitude)
+
+# get geodesic distance matrix
+distance_matrix <- distm(as.matrix(d[, c("longitude", "latitude")]))
+rownames(distance_matrix) <- d$glottocode
+colnames(distance_matrix) <- d$glottocode
+```
+
+This gives the geodesic distances between lat-lon points in metres:
+
+```{r}
+distance_matrix[1:5, 1:5]
+```
+
+It is possible to feed this distance matrix to `coev_fit()` in the `dist_mat` argument. If a distance matrix is declared, this function will standardise the distance matrix between 0 and 1 under the hood (to help with model fitting) and add a Gaussian Process for every variable in the model.
+
+Note that with 154 observations, this could increase the runtime dramatically – so only run this if you have time!
+
+```{r eval=FALSE, echo=FALSE}
+fit3 <- coev_fit(
+  data = d,
+  variables = list(
+    landesque_capital = "bernoulli_logit",
+    political_complexity = "ordered_logistic"
+  ),
+  id = "glottocode",
+  tree = tree,
+  prior = list(
+    A_offdiag = "normal(0, 2)",
+    Q_sigma = "normal(0, 0.5)"
+  ),
+  estimate_correlated_drift = FALSE,
+  dist_mat = distance_matrix,
+  parallel_chains = 4,
+  seed = 123
+)
+
+save_coevfit(fit3, "coevfit3.rds")
+```
+
+```{r eval=FALSE, echo=FALSE}
+fit3 <- readRDS("coevfit3.rds")
+```
